@@ -1,0 +1,264 @@
+#!/bin/sh
+
+# BouquetMakerXtream universal Enigma2 installer
+# Source: https://github.com/kiddac/Bouquet_Maker_Xtream
+
+REPO_ARCHIVE="https://github.com/kiddac/Bouquet_Maker_Xtream/archive/refs/heads/master.tar.gz"
+PLUGIN_DIR="/usr/lib/enigma2/python/Plugins/Extensions/BouquetMakerXtream"
+PLAYLIST_DIR="/etc/enigma2/bouquetmakerxtream"
+PLAYLIST_FILE="${PLAYLIST_DIR}/playlists.txt"
+TMP_DIR="/tmp/bouquetmakerxtream-install"
+ARCHIVE="${TMP_DIR}/bouquetmakerxtream.tar.gz"
+
+print_line()
+{
+    echo "------------------------------------------------------------"
+}
+
+fail()
+{
+    echo ""
+    echo "ERROR: $1"
+    exit 1
+}
+
+if [ "$(id -u)" != "0" ]; then
+    fail "This installer must be run as root."
+fi
+
+print_line
+echo " BouquetMakerXtream installer"
+print_line
+
+rm -rf "$TMP_DIR"
+mkdir -p "$TMP_DIR" || fail "Cannot create temporary directory."
+
+cleanup()
+{
+    rm -rf "$TMP_DIR"
+}
+
+trap cleanup EXIT INT TERM
+
+echo "Detecting Enigma2 image..."
+
+if command -v opkg >/dev/null 2>&1; then
+    PACKAGE_SYSTEM="opkg"
+    echo "Detected an OE-Alliance/OpenPLi-style image."
+
+elif command -v apt-get >/dev/null 2>&1 &&
+     command -v dpkg >/dev/null 2>&1; then
+    PACKAGE_SYSTEM="apt"
+    echo "Detected a DreamOS/Debian-style image."
+
+else
+    fail "Neither opkg nor apt/dpkg was found."
+fi
+
+echo ""
+echo "Detecting Python version..."
+
+if command -v python3 >/dev/null 2>&1; then
+    PYTHON_VERSION="3"
+    echo "Python 3 detected."
+
+elif command -v python >/dev/null 2>&1; then
+    PYTHON_VERSION="$(python -c 'import sys; print(sys.version_info[0])' 2>/dev/null)"
+
+    if [ "$PYTHON_VERSION" != "2" ] &&
+       [ "$PYTHON_VERSION" != "3" ]; then
+        fail "Could not determine the installed Python version."
+    fi
+
+    echo "Python ${PYTHON_VERSION} detected."
+else
+    fail "Python was not found on this box."
+fi
+
+install_opkg_package()
+{
+    PACKAGE="$1"
+
+    if opkg install "$PACKAGE"; then
+        return 0
+    fi
+
+    echo "Warning: package '$PACKAGE' was not available."
+    return 0
+}
+
+install_apt_package()
+{
+    PACKAGE="$1"
+
+    if apt-get -y install "$PACKAGE"; then
+        return 0
+    fi
+
+    echo "Warning: package '$PACKAGE' was not available."
+    return 0
+}
+
+print_line
+echo "Installing dependencies..."
+print_line
+
+if [ "$PACKAGE_SYSTEM" = "opkg" ]; then
+    opkg update || echo "Warning: opkg update failed."
+
+    install_opkg_package wget
+
+    if [ "$PYTHON_VERSION" = "3" ]; then
+        install_opkg_package python3-requests
+        install_opkg_package python3-pillow
+        install_opkg_package python3-multiprocessing
+    else
+        install_opkg_package python-requests
+        install_opkg_package python-multiprocessing
+
+        # Package name differs between older images.
+        opkg install python-image >/dev/null 2>&1 ||
+            opkg install python-imaging >/dev/null 2>&1 ||
+            echo "Warning: Python imaging package was not available."
+    fi
+else
+    apt-get update || echo "Warning: apt-get update failed."
+
+    install_apt_package wget
+    install_apt_package ca-certificates
+
+    if [ "$PYTHON_VERSION" = "3" ]; then
+        install_apt_package python3-requests
+        install_apt_package python3-pil
+        install_apt_package python3-multiprocessing
+    else
+        install_apt_package python-requests
+
+        apt-get -y install python-pil >/dev/null 2>&1 ||
+            apt-get -y install python-imaging >/dev/null 2>&1 ||
+            echo "Warning: Python imaging package was not available."
+    fi
+fi
+
+command -v wget >/dev/null 2>&1 ||
+    fail "wget could not be installed."
+
+command -v tar >/dev/null 2>&1 ||
+    fail "tar is not available."
+
+print_line
+echo "Downloading BouquetMakerXtream..."
+print_line
+
+wget --no-check-certificate -O "$ARCHIVE" "$REPO_ARCHIVE" ||
+    fail "Could not download BouquetMakerXtream."
+
+[ -s "$ARCHIVE" ] ||
+    fail "The downloaded archive is empty."
+
+tar -xzf "$ARCHIVE" -C "$TMP_DIR" ||
+    fail "Could not extract the downloaded archive."
+
+SOURCE_DIR="$(find "$TMP_DIR" -type d \
+    -path '*/BouquetMakerXtream/usr/lib/enigma2/python/Plugins/Extensions/BouquetMakerXtream' \
+    2>/dev/null | head -n 1)"
+
+[ -n "$SOURCE_DIR" ] ||
+    fail "The plugin directory was not found in the archive."
+
+if [ -d "$PLUGIN_DIR" ]; then
+    BACKUP_DIR="/tmp/BouquetMakerXtream-backup-$(date +%Y%m%d-%H%M%S)"
+
+    echo "Existing installation detected."
+    echo "Creating temporary backup: $BACKUP_DIR"
+
+    cp -R "$PLUGIN_DIR" "$BACKUP_DIR" ||
+        fail "Could not back up the existing plugin."
+fi
+
+echo "Installing plugin..."
+
+mkdir -p "$(dirname "$PLUGIN_DIR")" ||
+    fail "Cannot create the Enigma2 extensions directory."
+
+rm -rf "$PLUGIN_DIR"
+
+cp -R "$SOURCE_DIR" "$PLUGIN_DIR" ||
+    fail "Could not copy plugin files."
+
+find "$PLUGIN_DIR" -type d -exec chmod 755 {} \;
+find "$PLUGIN_DIR" -type f -exec chmod 644 {} \;
+
+mkdir -p "$PLAYLIST_DIR" ||
+    fail "Cannot create the playlist directory."
+
+touch "$PLAYLIST_FILE" ||
+    fail "Cannot create playlists.txt."
+
+chmod 600 "$PLAYLIST_FILE"
+
+print_line
+echo "M3U playlist configuration"
+print_line
+echo "You can enter:"
+echo "  - An external http:// or https:// M3U URL"
+echo "  - A local M3U file path"
+echo "  - Nothing, to configure it later"
+echo ""
+printf "Enter M3U URL or local file path: "
+IFS= read -r M3U_INPUT
+
+if [ -n "$M3U_INPUT" ]; then
+    case "$M3U_INPUT" in
+        http://*|https://*|/*)
+            if grep -Fqx "$M3U_INPUT" "$PLAYLIST_FILE" 2>/dev/null; then
+                echo "This playlist already exists in playlists.txt."
+            else
+                printf '%s\n' "$M3U_INPUT" >> "$PLAYLIST_FILE"
+                echo "Playlist added successfully."
+            fi
+            ;;
+        *)
+            echo "Warning: the input does not start with http://, https:// or /."
+            echo "The playlist was not added."
+            ;;
+    esac
+else
+    echo "Playlist configuration skipped."
+fi
+
+print_line
+echo "Installation completed successfully."
+print_line
+echo "Plugin directory:"
+echo "  $PLUGIN_DIR"
+echo ""
+echo "Playlist file:"
+echo "  $PLAYLIST_FILE"
+echo ""
+echo "Open the Enigma2 plugin menu and start BouquetMakerXtream."
+echo ""
+
+printf "Restart Enigma2 now? [y/N]: "
+IFS= read -r RESTART_ANSWER
+
+case "$RESTART_ANSWER" in
+    y|Y|yes|YES)
+        echo "Restarting Enigma2..."
+
+        if command -v systemctl >/dev/null 2>&1; then
+            systemctl restart enigma2 2>/dev/null ||
+                init 4
+        else
+            init 4
+            sleep 2
+            init 3
+        fi
+        ;;
+    *)
+        echo "Enigma2 was not restarted."
+        echo "Restart the GUI before opening the plugin."
+        ;;
+esac
+
+exit 0
