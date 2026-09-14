@@ -205,8 +205,8 @@ echo "  - An external http:// or https:// M3U URL"
 echo "  - A local M3U file path"
 echo "  - Nothing, to configure it later"
 echo ""
-printf "Enter M3U URL or local file path: "
-IFS= read -r M3U_INPUT
+printf "Enter M3U URL or local file path: " > /dev/tty
+IFS= read -r M3U_INPUT < /dev/tty
 
 if [ -n "$M3U_INPUT" ]; then
     case "$M3U_INPUT" in
@@ -239,8 +239,8 @@ echo ""
 echo "Open the Enigma2 plugin menu and start BouquetMakerXtream."
 echo ""
 
-printf "Restart Enigma2 now? [y/N]: "
-IFS= read -r RESTART_ANSWER
+printf "Restart Enigma2 now? [y/N]: " > /dev/tty
+IFS= read -r RESTART_ANSWER < /dev/tty
 
 case "$RESTART_ANSWER" in
     y|Y|yes|YES)
