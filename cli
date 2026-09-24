@@ -112,9 +112,11 @@ if [ "$PACKAGE_SYSTEM" = "opkg" ]; then
         install_opkg_package python3-requests
         install_opkg_package python3-pillow
         install_opkg_package python3-multiprocessing
+        install_opkg_package enigma2-plugin-extensions-epgimport
     else
         install_opkg_package python-requests
         install_opkg_package python-multiprocessing
+        install_opkg_package enigma2-plugin-extensions-epgimport
 
         # Package name differs between older images.
         opkg install python-image >/dev/null 2>&1 ||
